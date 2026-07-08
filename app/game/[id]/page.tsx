@@ -22,6 +22,9 @@ interface Game {
   moves: string[];
 }
 
+// Glyphs "cheios" (pretos) + seletor de apresentação de texto (\uFE0E) pra
+// impedir que o celular renderize como emoji (o que ignora a cor do CSS e
+// deixava os peões brancos aparecendo pretos).
 const GLYPH: Record<string, string> = {
   k: "\u265A",
   q: "\u265B",
@@ -30,12 +33,21 @@ const GLYPH: Record<string, string> = {
   n: "\u265E",
   p: "\u265F",
 };
+const pieceChar = (type: string) => GLYPH[type] + "\uFE0E";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
 
 function getPlayerId(): string {
   return sessionStorage.getItem("xadrez:playerId") ?? "";
+}
+
+interface DragState {
+  from: Square;
+  type: string;
+  color: "w" | "b";
+  x: number;
+  y: number;
 }
 
 export default function GamePage() {
@@ -49,6 +61,8 @@ export default function GamePage() {
   const [error, setError] = useState("");
   const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   // instância do chess.js reconstruída a partir do fen atual
   const chess = useMemo(() => {
@@ -97,7 +111,9 @@ export default function GamePage() {
   }, [game, playerId]);
 
   const orientation: Color = myColor ?? "white";
-  const isMyTurn = !!myColor && game?.turn === myColor && game?.status === "ongoing";
+  const isMyTurn =
+    !!myColor && game?.turn === myColor && game?.status === "ongoing";
+  const myCode = myColor === "white" ? "w" : "b";
 
   // mapa square -> peça
   const boardMap = useMemo(() => {
@@ -110,20 +126,25 @@ export default function GamePage() {
     return map;
   }, [chess]);
 
-  const legalTargets = useMemo(() => {
-    if (!selected) return new Map<string, boolean>();
-    const targets = new Map<string, boolean>();
-    try {
-      const moves = chess.moves({ square: selected, verbose: true });
-      for (const m of moves) {
-        const isCapture = m.flags.includes("c") || m.flags.includes("e");
-        targets.set(m.to, isCapture);
+  const legalFrom = useCallback(
+    (from: Square) => {
+      const targets = new Map<string, boolean>();
+      try {
+        for (const m of chess.moves({ square: from, verbose: true })) {
+          targets.set(m.to, m.flags.includes("c") || m.flags.includes("e"));
+        }
+      } catch {
+        /* peça sem movimentos */
       }
-    } catch {
-      /* peça sem movimentos */
-    }
-    return targets;
-  }, [selected, chess]);
+      return targets;
+    },
+    [chess]
+  );
+
+  const legalTargets = useMemo(
+    () => (selected ? legalFrom(selected) : new Map<string, boolean>()),
+    [selected, legalFrom]
+  );
 
   const kingInCheck = useMemo(() => {
     if (!game || game.status !== "ongoing" || !chess.inCheck()) return null;
@@ -141,7 +162,11 @@ export default function GamePage() {
       const optimistic = new Chess();
       try {
         optimistic.load(chess.fen());
-        optimistic.move({ from, to, promotion: (promotion as any) ?? "q" });
+        optimistic.move({
+          from,
+          to,
+          promotion: (promotion as "q" | "r" | "b" | "n" | undefined) ?? "q",
+        });
         setGame((g) =>
           g
             ? {
@@ -177,29 +202,36 @@ export default function GamePage() {
     [chess, gameId, playerId, fetchGame]
   );
 
-  const onSquareClick = useCallback(
+  // executa a jogada, tratando promoção de peão
+  const doMove = useCallback(
+    (from: Square, to: Square) => {
+      const piece = boardMap.get(from);
+      const lastRank = myColor === "white" ? "8" : "1";
+      if (piece?.type === "p" && to[1] === lastRank) {
+        setPromo({ from, to });
+      } else {
+        sendMove(from, to);
+      }
+      setSelected(null);
+    },
+    [boardMap, myColor, sendMove]
+  );
+
+  // clique/toque simples (sem arrastar)
+  const tapSquare = useCallback(
     (square: Square) => {
       if (!isMyTurn || !myColor) return;
       const piece = boardMap.get(square);
-      const myCode = myColor === "white" ? "w" : "b";
 
       if (selected) {
         if (square === selected) {
           setSelected(null);
           return;
         }
-        if (legalTargets.has(square)) {
-          const movingPiece = boardMap.get(selected);
-          const lastRank = myColor === "white" ? "8" : "1";
-          if (movingPiece?.type === "p" && square[1] === lastRank) {
-            setPromo({ from: selected, to: square });
-          } else {
-            sendMove(selected, square);
-          }
-          setSelected(null);
+        if (legalFrom(selected).has(square)) {
+          doMove(selected, square);
           return;
         }
-        // clicou em outra peça própria -> reseleciona
         if (piece && piece.color === myCode) {
           setSelected(square);
           return;
@@ -207,13 +239,71 @@ export default function GamePage() {
         setSelected(null);
         return;
       }
+      if (piece && piece.color === myCode) setSelected(square);
+    },
+    [isMyTurn, myColor, myCode, boardMap, selected, legalFrom, doMove]
+  );
 
-      // nenhuma seleção: só seleciona peça própria
+  const onPointerDown = useCallback(
+    (square: Square, e: React.PointerEvent) => {
+      if (!isMyTurn || !myColor) return;
+      const piece = boardMap.get(square);
       if (piece && piece.color === myCode) {
+        // começa um arraste a partir da peça própria
+        e.preventDefault();
         setSelected(square);
+        setDrag({
+          from: square,
+          type: piece.type,
+          color: piece.color,
+          x: e.clientX,
+          y: e.clientY,
+        });
+        boardRef.current?.setPointerCapture(e.pointerId);
+      } else {
+        // clique num destino/vazio
+        tapSquare(square);
       }
     },
-    [isMyTurn, myColor, boardMap, selected, legalTargets, sendMove]
+    [isMyTurn, myColor, myCode, boardMap, tapSquare]
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag) return;
+      setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d));
+    },
+    [drag]
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag) return;
+      const from = drag.from;
+      setDrag(null);
+      try {
+        boardRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      const el = document.elementFromPoint(
+        e.clientX,
+        e.clientY
+      ) as HTMLElement | null;
+      const targetSq = el
+        ?.closest("[data-square]")
+        ?.getAttribute("data-square") as Square | null;
+
+      if (!targetSq || targetSq === from) return; // foi um toque: mantém selecionado
+      if (legalFrom(from).has(targetSq)) {
+        doMove(from, targetSq);
+        return;
+      }
+      const tp = boardMap.get(targetSq);
+      if (tp && tp.color === myCode) setSelected(targetSq); // reseleciona
+      else setSelected(null);
+    },
+    [drag, legalFrom, doMove, boardMap, myCode]
   );
 
   const doResign = useCallback(async () => {
@@ -255,14 +345,18 @@ export default function GamePage() {
       const winnerIsMe = game.winner === myColor;
       return `Xeque-mate! ${
         game.winner === "white" ? "Brancas" : "Pretas"
-      } venceram.${myColor ? (winnerIsMe ? " Você ganhou! 🎉" : " Você perdeu.") : ""}`;
+      } venceram.${
+        myColor ? (winnerIsMe ? " Você ganhou! 🎉" : " Você perdeu.") : ""
+      }`;
     }
     if (game.status === "draw") return "Empate.";
     if (game.status === "resigned") {
       const winnerIsMe = game.winner === myColor;
       return `Desistência. ${
         game.winner === "white" ? "Brancas" : "Pretas"
-      } venceram.${myColor ? (winnerIsMe ? " Você ganhou!" : " Você perdeu.") : ""}`;
+      } venceram.${
+        myColor ? (winnerIsMe ? " Você ganhou!" : " Você perdeu.") : ""
+      }`;
     }
     if (isMyTurn) return "Sua vez de jogar.";
     if (myColor) return "Vez do oponente…";
@@ -294,7 +388,13 @@ export default function GamePage() {
       <div className="status">{statusText}</div>
       <div className="err">{error}</div>
 
-      <div className="board" style={{ margin: "12px 0" }}>
+      <div
+        className="board"
+        ref={boardRef}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
         {displayRanks.map((rank, r) =>
           displayFiles.map((file, f) => {
             const square = (file + rank) as Square;
@@ -304,6 +404,7 @@ export default function GamePage() {
             const target = legalTargets.get(square);
             const isTarget = legalTargets.has(square);
             const isCheck = kingInCheck === square;
+            const isDragging = drag?.from === square;
             const classes = [
               "sq",
               isLight ? "light" : "dark",
@@ -316,12 +417,16 @@ export default function GamePage() {
             return (
               <div
                 key={square}
+                data-square={square}
                 className={classes}
-                onClick={() => onSquareClick(square)}
+                onPointerDown={(e) => onPointerDown(square, e)}
               >
                 {piece && (
-                  <span className={`piece ${piece.color}`}>
-                    {GLYPH[piece.type]}
+                  <span
+                    className={`piece ${piece.color}`}
+                    style={isDragging ? { opacity: 0.3 } : undefined}
+                  >
+                    {pieceChar(piece.type)}
                   </span>
                 )}
                 {isTarget && <span className="dot" />}
@@ -348,6 +453,12 @@ export default function GamePage() {
         </p>
       )}
 
+      {drag && (
+        <div className="drag-piece" style={{ left: drag.x, top: drag.y }}>
+          <span className={`piece ${drag.color}`}>{pieceChar(drag.type)}</span>
+        </div>
+      )}
+
       {promo && (
         <div className="promo">
           <div className="card">
@@ -362,7 +473,7 @@ export default function GamePage() {
                   }}
                 >
                   <span className={`piece ${myColor === "white" ? "w" : "b"}`}>
-                    {GLYPH[p]}
+                    {pieceChar(p)}
                   </span>
                 </button>
               ))}

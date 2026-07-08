@@ -113,12 +113,16 @@ button.danger {
 .board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  width: min(90vw, 520px);
+  grid-template-rows: repeat(8, 1fr);
+  width: min(94vw, 640px);
+  max-width: 100%;
   aspect-ratio: 1 / 1;
+  margin: 16px auto;
   border: 3px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
   user-select: none;
+  touch-action: none; /* evita rolar a tela ao arrastar peça no celular */
 }
 
 .sq {
@@ -126,7 +130,8 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: min(11vw, 52px);
+  /* ~78% do lado da casa, então a peça sempre cabe dentro do quadrado */
+  font-size: min(9.1vw, 62px);
   line-height: 1;
   cursor: pointer;
 }
@@ -159,17 +164,36 @@ button.danger {
   box-shadow: inset 0 0 0 6px var(--move);
 }
 
+.piece {
+  /* fontes que têm as peças de xadrez como símbolos (não emoji) */
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols2", "Noto Sans Symbols",
+    "DejaVu Sans", "Apple Symbols", sans-serif;
+  font-variant-emoji: text; /* reforça: renderizar como texto, não emoji */
+  line-height: 1;
+  pointer-events: none;
+}
+
 .sq .piece {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
 }
 
-.sq .piece.b {
+.piece.b {
   color: #111;
 }
 
-.sq .piece.w {
+.piece.w {
   color: #fff;
-  text-shadow: 0 0 1px #000, 0 0 2px #000;
+  text-shadow: 0 0 1px #000, 0 0 2px #000, 0 0 3px #000;
+}
+
+/* peça flutuante enquanto arrasta */
+.drag-piece {
+  position: fixed;
+  transform: translate(-50%, -55%);
+  pointer-events: none;
+  z-index: 60;
+  font-size: min(9.1vw, 62px);
+  line-height: 1;
 }
 
 .sq.check {
