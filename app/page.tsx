@@ -22,10 +22,15 @@ export default function Lobby() {
   const [name, setName] = useState("");
   const [state, setState] = useState<State>("idle");
   const [error, setError] = useState("");
+  const [redisOff, setRedisOff] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     setName(sessionStorage.getItem("xadrez:name") ?? "");
+    fetch("/api/health", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setRedisOff(d && d.redis === false))
+      .catch(() => {});
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -100,6 +105,14 @@ export default function Lobby() {
         Digite seu nome, clique em <b>Jogar</b> e entre na fila. Assim que outra
         pessoa entrar, vocês caem numa partida juntos.
       </p>
+
+      {redisOff && (
+        <div className="warn">
+          ⚠️ O banco (Redis) não está configurado neste deploy. A fila e as
+          partidas vão falhar de forma intermitente. Configure o Upstash Redis
+          na Vercel (aba Storage) e faça um novo deploy.
+        </div>
+      )}
 
       <div className="panel" style={{ marginTop: 20 }}>
         {state === "idle" ? (

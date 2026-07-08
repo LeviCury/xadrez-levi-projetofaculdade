@@ -252,6 +252,17 @@ button.danger {
   min-height: 1.2em;
 }
 
+.warn {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #7a5d00;
+  background: #2a2410;
+  color: #ffd76b;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 a.link {
   color: var(--accent);
   text-decoration: none;

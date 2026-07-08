@@ -30,6 +30,7 @@ interface StoreBackend {
   // pareamento (playerId -> partida)
   setMatch(playerId: string, match: StoredMatch): Promise<void>;
   getMatch(playerId: string): Promise<StoredMatch | null>;
+  clearMatch(playerId: string): Promise<void>;
   // nome do jogador (playerId -> nome)
   setName(playerId: string, name: string): Promise<void>;
   getName(playerId: string): Promise<string | null>;
@@ -83,6 +84,10 @@ class RedisBackend implements StoreBackend {
 
   async getMatch(playerId: string): Promise<StoredMatch | null> {
     return (await this.redis.get<StoredMatch>(matchKey(playerId))) ?? null;
+  }
+
+  async clearMatch(playerId: string): Promise<void> {
+    await this.redis.del(matchKey(playerId));
   }
 
   async setName(playerId: string, name: string): Promise<void> {
@@ -158,6 +163,9 @@ class MemoryBackend implements StoreBackend {
   }
   async getMatch(playerId: string): Promise<StoredMatch | null> {
     return mem().matches.get(playerId) ?? null;
+  }
+  async clearMatch(playerId: string): Promise<void> {
+    mem().matches.delete(playerId);
   }
   async setName(playerId: string, name: string): Promise<void> {
     mem().names.set(playerId, name);

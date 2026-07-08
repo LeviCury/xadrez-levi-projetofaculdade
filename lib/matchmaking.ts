@@ -39,10 +39,20 @@ export async function joinQueue(player: Player): Promise<MatchResult> {
   await store.setName(player.id, player.name);
   await store.setSeen(player.id);
 
-  // Já foi pareado antes? (ex.: recarregou a página enquanto esperava)
+  // Já tem uma partida? Só reconecta se ela ainda estiver em andamento.
+  // Se acabou (ou sumiu), limpa o vínculo e entra numa fila nova — senão o
+  // jogador ficaria preso voltando pra partida encerrada.
   const existing = await store.getMatch(player.id);
   if (existing) {
-    return { status: "matched", gameId: existing.gameId, color: existing.color };
+    const g = await store.getGame(existing.gameId);
+    if (g && g.status === "ongoing") {
+      return {
+        status: "matched",
+        gameId: existing.gameId,
+        color: existing.color,
+      };
+    }
+    await store.clearMatch(player.id);
   }
 
   // Tenta achar um oponente vivo na fila, descartando entradas fantasmas
@@ -83,7 +93,12 @@ export async function queueStatus(playerId: string): Promise<MatchResult> {
   await store.setSeen(playerId);
   const match = await store.getMatch(playerId);
   if (match) {
-    return { status: "matched", gameId: match.gameId, color: match.color };
+    const g = await store.getGame(match.gameId);
+    if (g && g.status === "ongoing") {
+      return { status: "matched", gameId: match.gameId, color: match.color };
+    }
+    // vínculo obsoleto (partida acabou): descarta e continua esperando
+    await store.clearMatch(playerId);
   }
   return { status: "waiting" };
 }
