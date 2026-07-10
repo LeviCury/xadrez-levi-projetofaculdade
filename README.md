@@ -8,7 +8,9 @@ Feito em **Next.js** (App Router) e pronto pra publicar na **Vercel**.
 
 - **Lobby** (`/`): nome + botão *Jogar* → entra na fila e fica esperando (polling).
 - **Pareamento**: quem entrou primeiro joga de **brancas**; o segundo, de **pretas**.
-- **Partida** (`/game/[id]`): tabuleiro clicável. Clique numa peça sua para ver os lances legais (destaques), clique no destino para mover. Promoção de peão abre um seletor. Dá pra **Desistir** e **Voltar ao lobby**.
+- **Partida** (`/game/[id]`): tabuleiro responsivo com clique ou arrastar-e-soltar, animações de movimento, seletor de promoção e destaque de xeque e da última jogada.
+- **Acompanhamento**: cada jogador vê as peças que capturou, seus pontos de material, a vantagem atual e o histórico organizado lance a lance.
+- Dá pra **Desistir**, **Voltar ao lobby** ou acompanhar uma partida como espectador.
 - O estado sincroniza por *polling* (~1s), então não precisa de servidor WebSocket — funciona bem no serverless da Vercel.
 - Entradas "fantasma" na fila (quem entrou e fechou a aba) são descartadas automaticamente por um *heartbeat*.
 
